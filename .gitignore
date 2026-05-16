@@ -1,0 +1,22 @@
+
+/target/
+
+# Logs
+*.log
+decoder.log
+output.log
+
+# Video files 
+*.mp4
+*.mkv
+*.avi
+*.mov
+
+# Environment and secrets
+.env
+*.env
+.env.*
+
+# OS generated files
+.DS_Store
+Thumbs.db
