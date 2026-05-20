@@ -1,5 +1,6 @@
 
 /target/
+compilation_tmp/
 
 # Logs
 *.log

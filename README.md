@@ -53,10 +53,10 @@ cargo run -- my_movie.mp4
 ### 🎨 Rendering Modes (Art Styles)
 You can change how the video looks by adding the `--mode` option:
 
-*   **`--mode=unicode` (Default):** The best balance of quality and performance.
-*   **`--mode=ansi`:** Classic colored block style.
-*   **`--mode=ascii`:** Cool retro style using letters and symbols.
-*   **`--mode=kitty`:** High-resolution graphics (Requires the [Kitty Terminal](https://sw.kovidgoyal.net/kitty/)).
+*   **`--mode=unicode` (Default):** High-resolution rendering using half-block characters (▀). Best balance of quality and performance.
+*   **`--mode=ansi`:** Classic colored block style using full blocks (█).
+*   **`--mode=ascii`:** Retro grayscale style using standard ASCII characters.
+*   **`--mode=kitty`:** Native terminal graphics for ultra-high resolution (Requires the [Kitty Terminal](https://sw.kovidgoyal.net/kitty/)).
 
 **Example with high resolution:**
 ```bash
@@ -67,12 +67,22 @@ cargo run -- my_movie.mp4 --mode=kitty
 
 ## ⚡ Performance Tips
 
-If the video feels slow or "blinks" in Kitty mode, we've added a special "Low Power" mode for you:
+If the video feels slow or "blinks" in Kitty mode, use the "Low Power" mode:
 
 ```bash
 cargo run -- my_movie.mp4 --mode=kitty --low
 ```
-*This will make the video play much smoother on older computers.*
+*This reduces the internal rendering resolution, making it much smoother on older hardware.*
+
+---
+
+## 🛠️ Technical Details
+
+TermiPlay is built for performance and efficiency:
+*   **Language:** Written in 100% Rust for memory safety and speed.
+*   **Decoding:** Powered by `ffmpeg-next` (FFmpeg bindings) for broad format support.
+*   **Concurrency:** Uses `tokio` and `crossbeam-channel` for a multi-threaded decoding and rendering pipeline.
+*   **Audio:** Real-time audio playback via `rodio`.
 
 ---
 

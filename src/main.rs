@@ -17,7 +17,7 @@ struct Args {
     /// Video file to play
     file: String,
 
-    /// Rendering mode (ansi, unicode, ascii, kitty, sixel)
+    /// Rendering mode (ansi, unicode, ascii, kitty)
     #[arg(short, long, default_value = "unicode")]
     mode: String,
 
