@@ -67,7 +67,7 @@ async fn main() -> Result<()> {
     if args.mode == "unicode" && target_h % 2 != 0 { target_h -= 1; }
 
     let target_dims = Arc::new(RwLock::new((target_w, target_h)));
-    let audio_clock = Arc::new(RwLock::new(0.0));
+    let audio_clock = Arc::new(RwLock::new((0.0, Instant::now())));
 
     renderer.init(term_w, term_h)?;
 
@@ -89,6 +89,7 @@ async fn main() -> Result<()> {
         }
     });
 
+    let mut pending_video_frame = None;
     let start_time = Instant::now();
     loop {
         while event::poll(Duration::from_millis(0))? {
@@ -108,6 +109,7 @@ async fn main() -> Result<()> {
                         *dims = (tw, th);
                     }
                     while v_rx.try_recv().is_ok() {}
+                    pending_video_frame = None;
                     renderer.resize(term_w, term_h)?;
                     execute!(stdout(), terminal::Clear(terminal::ClearType::All))?;
                 }
@@ -115,56 +117,62 @@ async fn main() -> Result<()> {
             }
         }
         
-        match v_rx.try_recv() {
-            Ok(frame) => {
-                let master_clock = *audio_clock.read().unwrap();
-                let elapsed = if master_clock > 0.0 {
-                    master_clock
-                } else {
-                    start_time.elapsed().as_secs_f64()
-                };
-                
-                // If we're too early, wait but don't block for more than 10ms at a time 
-                // to keep the event loop responsive.
-                if frame.timestamp > elapsed {
-                    let diff = frame.timestamp - elapsed;
-                    if diff > 0.1 {
-                        // Too far in the future, maybe a seek happened or clock is reset
-                        // For now, just reset start_time if not using audio clock
-                        if master_clock == 0.0 {
-                             // This is a crude recovery
-                        }
-                    } else if diff > 0.005 {
-                        std::thread::sleep(Duration::from_millis(5));
-                        // Re-check after short sleep
-                        continue; 
-                    }
+        let mut disconnected = false;
+        let frame_opt = if let Some(f) = pending_video_frame.take() {
+            Some(f)
+        } else {
+            match v_rx.try_recv() {
+                Ok(frame) => Some(frame),
+                Err(crossbeam_channel::TryRecvError::Empty) => None,
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    disconnected = true;
+                    None
                 }
-                
-                // Skip late frames (more than 100ms behind)
-                if elapsed > frame.timestamp + 0.1 {
-                    continue;
+            }
+        };
+
+        if disconnected { break; }
+
+        if let Some(frame) = frame_opt {
+            let (base_clock, clock_updated_at) = *audio_clock.read().unwrap();
+            let elapsed = if base_clock > 0.0 {
+                base_clock + clock_updated_at.elapsed().as_secs_f64()
+            } else {
+                start_time.elapsed().as_secs_f64()
+            };
+            
+            // If we're too early, wait but don't block for more than 10ms at a time 
+            // to keep the event loop responsive.
+            if frame.timestamp > elapsed {
+                let diff = frame.timestamp - elapsed;
+                if diff > 0.1 {
+                    // Too far in the future, maybe a seek happened or clock is reset
+                } else if diff > 0.005 {
+                    std::thread::sleep(Duration::from_millis(5));
+                    pending_video_frame = Some(frame);
+                    continue; 
                 }
-                
-                let (tw, th) = *target_dims.read().unwrap();
-                let (lw, lh) = renderer.get_logical_size(term_w, term_h);
-                let multiplier_w = std::cmp::max(1, lw / term_w);
-                let multiplier_h = std::cmp::max(1, lh / term_h);
+            }
+            
+            // Skip late frames (more than 100ms behind)
+            if elapsed > frame.timestamp + 0.1 {
+                continue;
+            }
+            
+            let (tw, th) = *target_dims.read().unwrap();
+            let (lw, lh) = renderer.get_logical_size(term_w, term_h);
+            let multiplier_w = std::cmp::max(1, lw / term_w);
+            let multiplier_h = std::cmp::max(1, lh / term_h);
 
-                let ox = term_w.saturating_sub(tw / multiplier_w) / 2;
-                let oy = term_h.saturating_sub(th / multiplier_h) / 2;
-                
-                let cells_w = tw / multiplier_w;
-                let cells_h = th / multiplier_h;
+            let ox = term_w.saturating_sub(tw / multiplier_w) / 2;
+            let oy = term_h.saturating_sub(th / multiplier_h) / 2;
+            
+            let cells_w = tw / multiplier_w;
+            let cells_h = th / multiplier_h;
 
-                renderer.render_frame(&frame, ox, oy, cells_w, cells_h)?;
-            }
-            Err(crossbeam_channel::TryRecvError::Empty) => {
-                std::thread::sleep(Duration::from_millis(2));
-            }
-            Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                break;
-            }
+            renderer.render_frame(&frame, ox, oy, cells_w, cells_h)?;
+        } else {
+            std::thread::sleep(Duration::from_millis(2));
         }
     }
 

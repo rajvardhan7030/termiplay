@@ -1,8 +1,6 @@
 use anyhow::{Result, anyhow, Context};
 use crossbeam_channel::Sender;
 use crate::render::Frame;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::sync::{Arc, RwLock};
 
 pub struct AudioFrame {
@@ -18,10 +16,6 @@ pub fn decode_pipeline(
     audio_sender: Sender<AudioFrame>,
     target_dims: Arc<RwLock<(u16, u16)>>
 ) -> Result<()> {
-    let mut log = OpenOptions::new().create(true).append(true).open("decoder.log")?;
-    let (iw, ih) = *target_dims.read().unwrap();
-    writeln!(log, "--- Start Decoding: {} ({}x{}) ---", path, iw, ih)?;
-    
     ffmpeg_next::init().context("Failed to initialize FFmpeg")?;
     let mut ictx = ffmpeg_next::format::input(&path).context("Failed to open input file")?;
     
@@ -123,6 +117,5 @@ pub fn decode_pipeline(
         }
     }
     
-    writeln!(log, "Pipeline finished.")?;
     Ok(())
 }
