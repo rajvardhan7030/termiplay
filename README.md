@@ -13,11 +13,15 @@ TermiPlay is built with a language called Rust. To run it, you need the Rust too
 *   **How to install:** Go to [rustup.rs](https://rustup.rs/) and follow the simple instructions for your operating system (Windows, macOS, or Linux). 
 *   **Verify:** Open your terminal and type `cargo --version`. If you see a version number, you're good to go!
 
-### 2. Install FFmpeg (The Video Decoder)
-TermiPlay needs FFmpeg to understand and play video files.
+### 2. Install FFmpeg development libraries (The Video Decoder)
+TermiPlay links against FFmpeg through Rust bindings, so you need the FFmpeg command-line tool and the development headers/libraries.
 *   **Windows:** Download from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/), extract it, and add the `bin` folder to your "Environment Variables" (PATH).
 *   **macOS:** Open your terminal and type `brew install ffmpeg` (requires [Homebrew](https://brew.sh/)).
-*   **Linux (Ubuntu/Debian):** Open your terminal and type `sudo apt update && sudo apt install ffmpeg`.
+*   **Linux (Ubuntu/Debian):** Open your terminal and type:
+    ```bash
+    sudo apt update
+    sudo apt install ffmpeg pkg-config clang libclang-dev libavutil-dev libavcodec-dev libavformat-dev libswscale-dev libswresample-dev
+    ```
 
 ---
 
@@ -28,7 +32,7 @@ Once the tools above are installed, you can get the code:
 1.  Open your terminal.
 2.  Type the following command to download the project:
     ```bash
-    git clone https://github.com/your-username/termiplay.git
+    git clone https://github.com/Rajvardhan7030/termiplay.git
     ```
 3.  Enter the project folder:
     ```bash
@@ -56,7 +60,7 @@ You can change how the video looks by adding the `--mode` option:
 *   **`--mode=unicode` (Default):** High-resolution rendering using half-block characters (▀). Best balance of quality and performance.
 *   **`--mode=ansi`:** Classic colored block style using full blocks (█).
 *   **`--mode=ascii`:** Retro grayscale style using standard ASCII characters.
-*   **`--mode=kitty`:** Native terminal graphics for ultra-high resolution (Requires the [Kitty Terminal](https://sw.kovidgoyal.net/kitty/)).
+*   **`--mode=kitty`:** Native terminal graphics for ultra-high resolution. Requires the [Kitty Terminal](https://sw.kovidgoyal.net/kitty/) or another terminal that exposes Kitty graphics support through Kitty-compatible environment variables.
 
 **Example with high resolution:**
 ```bash
@@ -81,7 +85,7 @@ cargo run -- my_movie.mp4 --mode=kitty --low
 TermiPlay is built for performance and efficiency:
 *   **Language:** Written in 100% Rust for memory safety and speed.
 *   **Decoding:** Powered by `ffmpeg-next` (FFmpeg bindings) for broad format support.
-*   **Concurrency:** Uses `tokio` and `crossbeam-channel` for a multi-threaded decoding and rendering pipeline.
+*   **Concurrency:** Uses standard Rust threads and `crossbeam-channel` for a multi-threaded decoding and rendering pipeline.
 *   **Audio:** Real-time audio playback via `rodio`.
 
 ---
@@ -96,7 +100,10 @@ TermiPlay is built for performance and efficiency:
 ## 🔍 Troubleshooting (If things go wrong)
 
 **"I see a black screen in Kitty mode!"**
-> **Fix:** This usually happens because of permissions. We've optimized this to be as robust as possible, but if it persists, try using `--mode=unicode` instead.
+> **Fix:** Make sure you are running inside Kitty or a Kitty-compatible terminal. Otherwise, use `--mode=unicode`.
+
+**"`cargo run` fails with `Package 'libavutil' not found`."**
+> **Fix:** Install the FFmpeg development packages listed in the setup section. On Linux, the plain `ffmpeg` package is not enough to compile the Rust FFmpeg bindings.
 
 **"The video is laggy or flickering."**
 > **Fix:** Use the `--low` flag (if in Kitty mode) or try a simpler mode like `--mode=ascii`.

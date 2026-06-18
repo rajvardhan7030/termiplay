@@ -36,11 +36,20 @@ impl Renderer for AsciiRenderer {
         Ok(())
     }
 
-    fn render_frame(&mut self, frame: &Frame, offset_x: u16, offset_y: u16, _cells_w: u16, _cells_h: u16) -> Result<()> {
+    fn render_frame(
+        &mut self,
+        frame: &Frame,
+        offset_x: u16,
+        offset_y: u16,
+        cells_w: u16,
+        cells_h: u16,
+    ) -> Result<()> {
         let mut out = BufWriter::new(stdout());
         
-        let render_w = std::cmp::min(self.width, frame.width);
-        let render_h = std::cmp::min(self.height, frame.height);
+        let available_w = self.width.saturating_sub(offset_x);
+        let available_h = self.height.saturating_sub(offset_y);
+        let render_w = frame.width.min(cells_w).min(available_w);
+        let render_h = frame.height.min(cells_h).min(available_h);
         
         for y in 0..render_h {
             for x in 0..render_w {

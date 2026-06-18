@@ -1,15 +1,58 @@
+use anyhow::{anyhow, Context, Result};
 use clap::Parser;
-use anyhow::{Result, Context, anyhow};
 use crossbeam_channel::bounded;
-use std::time::{Duration, Instant};
-use crossterm::{execute, terminal};
 use crossterm::event::{self, Event, KeyCode};
-use std::sync::{Arc, RwLock};
+use crossterm::{execute, terminal};
 use std::io::stdout;
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 
 mod render;
 mod decode;
 mod audio;
+
+struct TerminalSession {
+    renderer: Box<dyn render::Renderer>,
+    raw_mode_enabled: bool,
+}
+
+impl TerminalSession {
+    fn new(mut renderer: Box<dyn render::Renderer>, width: u16, height: u16) -> Result<Self> {
+        terminal::enable_raw_mode().context("Failed to enable terminal raw mode")?;
+        if let Err(err) = renderer.init(width, height) {
+            let _ = terminal::disable_raw_mode();
+            return Err(err);
+        }
+
+        Ok(Self {
+            renderer,
+            raw_mode_enabled: true,
+        })
+    }
+}
+
+impl std::ops::Deref for TerminalSession {
+    type Target = dyn render::Renderer;
+
+    fn deref(&self) -> &Self::Target {
+        self.renderer.as_ref()
+    }
+}
+
+impl std::ops::DerefMut for TerminalSession {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.renderer.as_mut()
+    }
+}
+
+impl Drop for TerminalSession {
+    fn drop(&mut self) {
+        let _ = self.renderer.clear();
+        if self.raw_mode_enabled {
+            let _ = terminal::disable_raw_mode();
+        }
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -36,11 +79,11 @@ fn calculate_dimensions(
     let target_w = term_w;
     let target_h = (term_w as f64 / aspect) as u16;
     if target_h <= term_h {
-        (target_w, target_h)
+        (target_w.max(1), target_h.max(1))
     } else {
         let target_h = term_h;
         let target_w = (term_h as f64 * aspect) as u16;
-        (target_w, target_h)
+        (target_w.max(1), target_h.max(1))
     }
 }
 
@@ -61,15 +104,17 @@ async fn main() -> Result<()> {
     drop(decoder);
     drop(ictx);
 
-    let mut renderer = render::create_renderer(&args.mode, args.low)?;
+    let renderer = render::create_renderer(&args.mode, args.low)?;
     let (logical_w, logical_h) = renderer.get_logical_size(term_w, term_h);
     let (target_w, mut target_h) = calculate_dimensions(vid_w, vid_h, logical_w, logical_h);
-    if args.mode == "unicode" && target_h % 2 != 0 { target_h -= 1; }
+    if args.mode == "unicode" && target_h % 2 != 0 {
+        target_h = target_h.saturating_sub(1).max(2);
+    }
 
     let target_dims = Arc::new(RwLock::new((target_w, target_h)));
-    let audio_clock = Arc::new(RwLock::new((0.0, Instant::now())));
+    let audio_clock = Arc::new(RwLock::new(None));
 
-    renderer.init(term_w, term_h)?;
+    let mut renderer = TerminalSession::new(renderer, term_w, term_h)?;
 
     let (v_tx, v_rx) = bounded(20);
     let (a_tx, a_rx) = bounded(100);
@@ -91,19 +136,23 @@ async fn main() -> Result<()> {
 
     let mut pending_video_frame = None;
     let start_time = Instant::now();
+    let mut should_quit = false;
     loop {
         while event::poll(Duration::from_millis(0))? {
             match event::read()? {
                 Event::Key(key) => {
                     if key.code == KeyCode::Char('q') || key.code == KeyCode::Esc {
-                        return Ok(());
+                        should_quit = true;
+                        break;
                     }
                 }
                 Event::Resize(nw, nh) => {
                     term_w = nw; term_h = nh;
                     let (lw, lh) = renderer.get_logical_size(term_w, term_h);
                     let (tw, mut th) = calculate_dimensions(vid_w, vid_h, lw, lh);
-                    if args.mode == "unicode" && th % 2 != 0 { th -= 1; }
+                    if args.mode == "unicode" && th % 2 != 0 {
+                        th = th.saturating_sub(1).max(2);
+                    }
                     {
                         let mut dims = target_dims.write().unwrap();
                         *dims = (tw, th);
@@ -115,6 +164,10 @@ async fn main() -> Result<()> {
                 }
                 _ => {}
             }
+        }
+
+        if should_quit {
+            break;
         }
         
         let mut disconnected = false;
@@ -134,8 +187,8 @@ async fn main() -> Result<()> {
         if disconnected { break; }
 
         if let Some(frame) = frame_opt {
-            let (base_clock, clock_updated_at) = *audio_clock.read().unwrap();
-            let elapsed = if base_clock > 0.0 {
+            let audio_time = *audio_clock.read().unwrap();
+            let elapsed = if let Some((base_clock, clock_updated_at)) = audio_time {
                 base_clock + clock_updated_at.elapsed().as_secs_f64()
             } else {
                 start_time.elapsed().as_secs_f64()
@@ -161,14 +214,14 @@ async fn main() -> Result<()> {
             
             let (tw, th) = *target_dims.read().unwrap();
             let (lw, lh) = renderer.get_logical_size(term_w, term_h);
-            let multiplier_w = std::cmp::max(1, lw / term_w);
-            let multiplier_h = std::cmp::max(1, lh / term_h);
+            let multiplier_w = std::cmp::max(1, lw / term_w.max(1));
+            let multiplier_h = std::cmp::max(1, lh / term_h.max(1));
 
-            let ox = term_w.saturating_sub(tw / multiplier_w) / 2;
-            let oy = term_h.saturating_sub(th / multiplier_h) / 2;
-            
-            let cells_w = tw / multiplier_w;
-            let cells_h = th / multiplier_h;
+            let cells_w = (tw / multiplier_w).max(1);
+            let cells_h = (th / multiplier_h).max(1);
+
+            let ox = term_w.saturating_sub(cells_w) / 2;
+            let oy = term_h.saturating_sub(cells_h) / 2;
 
             renderer.render_frame(&frame, ox, oy, cells_w, cells_h)?;
         } else {
@@ -176,6 +229,5 @@ async fn main() -> Result<()> {
         }
     }
 
-    renderer.clear()?;
     Ok(())
 }

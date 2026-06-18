@@ -70,7 +70,10 @@ impl Renderer for KittyRenderer {
     }
 
     fn supported() -> bool {
-        true
+        std::env::var_os("KITTY_WINDOW_ID").is_some()
+            || std::env::var("TERM")
+                .map(|term| term.to_ascii_lowercase().contains("kitty"))
+                .unwrap_or(false)
     }
 
     fn get_logical_size(&self, term_width: u16, term_height: u16) -> (u16, u16) {

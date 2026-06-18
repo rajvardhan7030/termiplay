@@ -27,7 +27,8 @@ pub fn create_renderer(mode: &str, low: bool) -> Result<Box<dyn Renderer>> {
     match mode {
         "ansi" => Ok(Box::new(ansi::AnsiRenderer::new())),
         "unicode" => Ok(Box::new(unicode::UnicodeRenderer::new())),
-        "kitty" => Ok(Box::new(kitty::KittyRenderer::new(low))),
+        "kitty" if kitty::KittyRenderer::supported() => Ok(Box::new(kitty::KittyRenderer::new(low))),
+        "kitty" => Err(anyhow!("Kitty mode requires a terminal that supports the Kitty graphics protocol.")),
         "ascii" => Ok(Box::new(ascii::AsciiRenderer::new())),
         _ => Err(anyhow!("Renderer mode '{}' not implemented yet.", mode)),
     }

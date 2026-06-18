@@ -116,6 +116,84 @@ pub fn decode_pipeline(
             }
         }
     }
+
+    if video_decoder.send_eof().is_ok() {
+        while video_decoder.receive_frame(&mut video_decoded).is_ok() {
+            let timestamp = video_decoded
+                .pts()
+                .map(|p| p as f64 * video_time_base)
+                .unwrap_or(0.0);
+
+            let (new_w, new_h) = *target_dims.read().unwrap();
+            if new_w != current_w || new_h != current_h {
+                current_w = new_w;
+                current_h = new_h;
+                scaler = ffmpeg_next::software::scaling::context::Context::get(
+                    video_decoder.format(),
+                    video_decoder.width(),
+                    video_decoder.height(),
+                    ffmpeg_next::format::Pixel::RGB24,
+                    current_w as u32,
+                    current_h as u32,
+                    ffmpeg_next::software::scaling::flag::Flags::LANCZOS,
+                )?;
+            }
+
+            if scaler.run(&video_decoded, &mut rgb_frame).is_ok() {
+                let data = rgb_frame.data(0);
+                let linesize = rgb_frame.stride(0);
+                let mut pixels = Vec::with_capacity((current_w as usize * current_h as usize) * 3);
+                for y in 0..current_h {
+                    let row_start = (y as usize) * linesize;
+                    pixels.extend_from_slice(
+                        &data[row_start..row_start + (current_w as usize * 3)],
+                    );
+                }
+                let frame = Frame {
+                    width: current_w,
+                    height: current_h,
+                    pixels,
+                    timestamp,
+                };
+                if video_sender.send(frame).is_err() {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    if let Some((_, time_base, ref mut decoder)) = audio_data {
+        if decoder.send_eof().is_ok() {
+            while decoder.receive_frame(&mut audio_decoded).is_ok() {
+                let timestamp = audio_decoded
+                    .pts()
+                    .map(|p| p as f64 * time_base)
+                    .unwrap_or(0.0);
+                if let Some(ref mut res) = resampler {
+                    let mut resampled = ffmpeg_next::util::frame::audio::Audio::empty();
+                    if res.run(&audio_decoded, &mut resampled).is_ok() {
+                        let data = resampled.data(0);
+                        let samples: Vec<f32> = data
+                            .chunks_exact(4)
+                            .map(|chunk| {
+                                f32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])
+                            })
+                            .collect();
+
+                        let frame = AudioFrame {
+                            samples,
+                            channels: 2,
+                            sample_rate: decoder.rate(),
+                            timestamp,
+                        };
+                        if audio_sender.send(frame).is_err() {
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+    }
     
     Ok(())
 }

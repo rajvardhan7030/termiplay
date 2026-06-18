@@ -1,6 +1,10 @@
 use super::{Renderer, Frame};
 use anyhow::Result;
-use crossterm::{execute, queue, terminal, cursor, style::{SetForegroundColor, Color, Print}};
+use crossterm::{
+    cursor, execute, queue,
+    style::{Color, Print, ResetColor, SetForegroundColor},
+    terminal,
+};
 use std::io::{stdout, Write, BufWriter};
 
 pub struct AnsiRenderer {
@@ -22,17 +26,27 @@ impl Renderer for AnsiRenderer {
         execute!(
             stdout(),
             terminal::EnterAlternateScreen,
-            cursor::Hide
+            cursor::Hide,
+            terminal::Clear(terminal::ClearType::All)
         )?;
         self.previous_frame = vec![0; (width as usize * height as usize) * 3];
         Ok(())
     }
 
-    fn render_frame(&mut self, frame: &Frame, offset_x: u16, offset_y: u16, _cells_w: u16, _cells_h: u16) -> Result<()> {
+    fn render_frame(
+        &mut self,
+        frame: &Frame,
+        offset_x: u16,
+        offset_y: u16,
+        cells_w: u16,
+        cells_h: u16,
+    ) -> Result<()> {
         let mut out = BufWriter::new(stdout());
         
-        let render_w = std::cmp::min(self.width, frame.width);
-        let render_h = std::cmp::min(self.height, frame.height);
+        let available_w = self.width.saturating_sub(offset_x);
+        let available_h = self.height.saturating_sub(offset_y);
+        let render_w = frame.width.min(cells_w).min(available_w);
+        let render_h = frame.height.min(cells_h).min(available_h);
         
         for y in 0..render_h {
             for x in 0..render_w {
@@ -62,6 +76,7 @@ impl Renderer for AnsiRenderer {
     fn clear(&mut self) -> Result<()> {
         execute!(
             stdout(),
+            ResetColor,
             cursor::Show,
             terminal::LeaveAlternateScreen
         )?;

@@ -1,6 +1,10 @@
 use super::{Renderer, Frame};
 use anyhow::Result;
-use crossterm::{execute, queue, terminal, cursor, style::{SetForegroundColor, SetBackgroundColor, Color, Print, ResetColor}};
+use crossterm::{
+    cursor, execute, queue,
+    style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
+    terminal,
+};
 use std::io::{stdout, Write, BufWriter};
 
 pub struct UnicodeRenderer {
@@ -22,20 +26,22 @@ impl Renderer for UnicodeRenderer {
         execute!(
             stdout(),
             terminal::EnterAlternateScreen,
-            cursor::Hide
+            cursor::Hide,
+            terminal::Clear(terminal::ClearType::All)
         )?;
         self.previous_frame = vec![0; (width as usize * (height * 2) as usize) * 3];
         Ok(())
     }
 
-    fn render_frame(&mut self, frame: &Frame, offset_x: u16, offset_y: u16, _cells_w: u16, _cells_h: u16) -> Result<()> {
+    fn render_frame(&mut self, frame: &Frame, offset_x: u16, offset_y: u16, cells_w: u16, cells_h: u16) -> Result<()> {
         let mut out = BufWriter::new(stdout());
         
-        let logical_height = self.height * 2;
-        let render_w = std::cmp::min(self.width, frame.width);
-        let render_h = std::cmp::min(logical_height, frame.height);
+        let available_w = self.width.saturating_sub(offset_x);
+        let available_rows = self.height.saturating_sub(offset_y);
+        let render_w = frame.width.min(cells_w).min(available_w);
+        let render_rows = (frame.height / 2).min(cells_h).min(available_rows);
         
-        for y in 0..(render_h / 2) {
+        for y in 0..render_rows {
             for x in 0..render_w {
                 let curr_top_idx = ((y * 2) as usize * frame.width as usize + x as usize) * 3;
                 let curr_bottom_idx = ((y * 2 + 1) as usize * frame.width as usize + x as usize) * 3;
